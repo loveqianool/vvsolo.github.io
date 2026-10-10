@@ -85,7 +85,13 @@ const persistOrder = () => saveJSON(RULES_ORDER_KEY, ruleOrder);
 root.innerHTML = `
 <header class="topbar">
 <button class="icon-btn" id="btn-sidebar" title="收起/展开侧边栏">☰</button>
-<div class="brand"><span class="logo">✒</span><h1>小说排版助手</h1></div>
+<div class="doc-actions" aria-label="文档操作">
+<button class="chip" id="btn-new">新建</button>
+<button class="chip" id="btn-save">保存草稿</button>
+<button class="chip" id="btn-restore">还原草稿</button>
+<button class="chip danger" id="btn-clear">清空</button>
+<button class="chip" id="btn-rediff" hidden>查看上次 diff</button>
+</div>
 <nav class="pipelines" aria-label="排版流程">
 <button class="btn primary" data-pipeline="cleanup" title="快捷键 F8">一键整理</button>
 <button class="btn" data-pipeline="cleanupEx" title="快捷键 F7">特殊整理</button>
@@ -99,15 +105,6 @@ root.innerHTML = `
 <button class="btn ghost" id="btn-search" title="快捷键 Ctrl+F">查找替换</button>
 </div>
 </header>
-<div class="docbar" aria-label="文档操作">
-<button class="chip" id="btn-new">新建</button>
-<button class="chip" id="btn-save">保存草稿</button>
-<button class="chip" id="btn-restore">还原草稿</button>
-<button class="chip danger" id="btn-clear">清空</button>
-<button class="chip" id="btn-fold">折叠章节</button>
-<span class="spacer"></span>
-<button class="chip" id="btn-rediff" hidden>查看上次 diff</button>
-</div>
 <div class="main">
 <aside class="sidebar" id="sidebar">
 <section class="panel">
@@ -124,11 +121,6 @@ root.innerHTML = `
 <h2>整理规则 <button class="link" id="btn-rules-reset">重置</button></h2>
 <p class="hint">「一键整理」启用的步骤，Init / End 恒启用；点击规则名可单步运行；↑↓ 可调顺序</p>
 <ul class="rules" id="rules-list"></ul>
-<div class="rules-io">
-<button class="chip" id="btn-rules-export">导出 JSON</button>
-<button class="chip" id="btn-rules-import">导入 JSON</button>
-<input type="file" id="rules-file" accept="application/json,.json" hidden>
-</div>
 <div class="quote-results" id="quote-results" hidden></div>
 </section>
 </aside>
@@ -363,17 +355,11 @@ setStatus('引号检查完成');
 setStatus('引号检查结果解析失败');
 }
 } else if (currentPipeline === 'detectChapters') {
-if (foldPending) {
-foldPending = false;
-foldChapterBodies(JSON.parse(msg.result) as ChapterEntry[]);
-setStatus('章节已折叠，点击 … 可单独展开');
-} else {
 try {
 openToc(JSON.parse(msg.result) as ChapterEntry[]);
 setStatus('目录已生成');
 } catch {
 setStatus('目录结果解析失败');
-}
 }
 } else if (currentPipeline === 'checkLongParas') {
 try {
@@ -554,61 +540,6 @@ worker.postMessage(req);
 }
 $('#btn-toc').addEventListener('click', runToc);
 
-/* ---------------- 章节折叠 ---------------- */
-let foldPending = false;
-const btnFold = $('#btn-fold') as HTMLButtonElement;
-function foldChapterBodies(toc: ChapterEntry[]) {
-if (toc.length === 0) {
-setStatus('未识别到章节，无可折叠内容');
-return;
-}
-const totalLines = editor.lineCount();
-const docLen = editor.docLength();
-const ranges: Array<{ from: number; to: number }> = [];
-for (let i = 0; i < toc.length; i++) {
-const from = editor.lineRange(toc[i].line).to; // 标题行末（含换行）
-const nextLine = i + 1 < toc.length ? toc[i + 1].line : totalLines + 1;
-const to = nextLine <= totalLines ? editor.lineRange(nextLine).from : docLen;
-if (to > from) ranges.push({ from, to });
-}
-const n = editor.foldRanges(ranges);
-if (n > 0) {
-btnFold.textContent = '展开章节';
-setStatus(`已折叠 ${n} 个章节正文，点击 … 可单独展开`);
-} else {
-setStatus('章节下无正文可折叠');
-}
-}
-btnFold.addEventListener('click', () => {
-if (editor.isFolded()) {
-editor.unfoldAll();
-btnFold.textContent = '折叠章节';
-setStatus('已展开全部章节');
-return;
-}
-if (currentJob) {
-setStatus('有任务正在运行，请稍候…');
-return;
-}
-const text = editor.getValue();
-if (!text) {
-setStatus('编辑器为空，先粘贴文本');
-editor.focus();
-return;
-}
-foldPending = true;
-const req: RunRequest = { kind: 'run', jobId: newJobId(), pipeline: 'detectChapters', text};
-currentJob = req.jobId;
-currentLabel = '章节折叠';
-currentPipeline = 'detectChapters';
-setRunning(true);
-progressBar.style.width = '0%';
-progressBar.classList.add('indeterminate');
-progressLabel.textContent = currentLabel;
-setStatus(`开始：${currentLabel}…`);
-worker.postMessage(req);
-});
-
 /* ---------------- 右下角文档跳转 ---------------- */
 $('#btn-goto-top').addEventListener('click', () => editor.gotoLine(1));
 $('#btn-goto-bottom').addEventListener('click', () =>
@@ -785,52 +716,6 @@ persistOrder();
 renderRules();
 setStatus('规则已重置为默认');
 });
-$('#btn-rules-export').addEventListener('click', () => {
-const blob = new Blob([JSON.stringify({ version: 2, enabledIds, order: ruleOrder}, null, 2)], {
-type: 'application/json',
-});
-const a = document.createElement('a');
-a.href = URL.createObjectURL(blob);
-a.download = 'typeset-rules.json';
-a.click();
-setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-setStatus('规则已导出');
-});
-$('#btn-rules-import').addEventListener('click', () => {
-($('#rules-file') as HTMLInputElement).click();
-});
-($('#rules-file') as HTMLInputElement).addEventListener('change', (e) => {
-const file = (e.target as HTMLInputElement).files?.[0];
-if (!file) return;
-const reader = new FileReader();
-reader.onload = () => {
-try {
-const data = JSON.parse(String(reader.result));
-const ids: string[] = Array.isArray(data)? data: data.enabledIds;
-if (!Array.isArray(ids)) throw new Error('格式错误');
-const valid = ids.filter((id) => TOGGLEABLE_IDS.includes(id));
-enabledIds = [...LOCKED_STEPS,...valid].filter((id) => CLEANUP_IDS.includes(id));
-saveJSON(RULES_KEY, enabledIds);
-// 顺序：v2 格式带 order，老格式/数组格式沿用默认顺序
-const rawOrder: unknown = !Array.isArray(data)? data.order: undefined;
-if (Array.isArray(rawOrder)) {
-const wanted = (rawOrder as string[]).filter((id) => CLEANUP_IDS.includes(id));
-ruleOrder = [
-...wanted,
-...CLEANUP_IDS.filter((id) =>!wanted.includes(id)),
-];
-persistOrder();
-}
-renderRules();
-setStatus(`已导入规则：${valid.length} 步启用`);
-} catch {
-setStatus('导入失败：JSON 格式不正确');
-}
-};
-reader.readAsText(file);
-(e.target as HTMLInputElement).value = '';
-});
-
 /* ---------------- 文档操作 ---------------- */
 $('#btn-new').addEventListener('click', () => {
 editor.setValue('');

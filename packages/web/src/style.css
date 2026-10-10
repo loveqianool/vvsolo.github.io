@@ -54,25 +54,13 @@ button { font-family: inherit; }
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
+  flex-wrap: wrap;
 }
 
-.brand { display: flex; align-items: center; gap: 8px; }
-.brand .logo {
-  font-size: 20px;
-  color: var(--accent);
-  line-height: 1;
-}
-.brand h1 {
-  font-family: var(--serif);
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: 2px;
-  margin: 0;
-  white-space: nowrap;
-}
+.doc-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
 .pipelines { display: flex; gap: 8px; margin-left: 8px; flex-wrap: wrap; }
-.top-actions { display: flex; gap: 8px; margin-left: auto; }
+.top-actions { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
 
 .btn {
   appearance: none;
@@ -112,16 +100,6 @@ button { font-family: inherit; }
 .icon-btn:hover { color: var(--text); background: var(--bg-raised); }
 
 /* ---------- 文档操作条 ---------- */
-.docbar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border-soft);
-  flex: 0 0 auto;
-  flex-wrap: wrap;
-}
 .chip {
   appearance: none;
   border: 1px solid transparent;
@@ -134,8 +112,6 @@ button { font-family: inherit; }
 }
 .chip:hover { color: var(--text); background: var(--bg-raised); border-color: var(--border); }
 .chip.danger:hover { color: var(--danger); border-color: var(--danger); }
-.docbar .sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
-.docbar .lbl { color: var(--text-faint); font-size: 12px; }
 .spacer { flex: 1; }
 
 /* ---------- 主区域 ---------- */
@@ -275,7 +251,6 @@ button { font-family: inherit; }
 }
 .rule-move { margin-left: auto; display: inline-flex; gap: 2px; }
 .rule-move .link { text-decoration: none; font-size: 14px; padding: 0 4px; }
-.rules-io { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
 .quote-results { margin-top: 10px; font-size: 12px; }
 .quote-results ul { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .quote-results li { border-left: 2px solid var(--accent); padding-left: 8px; }
@@ -498,8 +473,8 @@ button { font-family: inherit; }
 
 /* ---------- 响应式 ---------- */
 @media (max-width: 900px) {
-  .brand h1 { display: none; }
   .pipelines { margin-left: 0; }
+  .top-actions { margin-left: 0; }
   .btn { padding: 6px 10px; font-size: 12px; }
   .sidebar {
     position: absolute;
