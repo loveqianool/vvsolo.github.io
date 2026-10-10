@@ -4,6 +4,7 @@ import {
 BOOK_KEY,
 DRAFT_KEY,
 RULES_KEY,
+RULES_ORDER_KEY,
 loadJSON,
 removeKey,
 saveJSON,
@@ -13,6 +14,7 @@ import {
 PIPELINE_STEPS,
 getTransform,
 type PipelineId,
+type QuoteIssue,
 } from '@typeset/core';
 import type { RunRequest, WorkerOut} from './worker';
 
@@ -27,14 +29,18 @@ typesetRead: '阅读排版',
 const LOCKED_STEPS = new Set(['Init', 'End']);
 const CLEANUP_IDS = PIPELINE_STEPS.cleanup.map((s) => s.id);
 const TOGGLEABLE_IDS = CLEANUP_IDS.filter((id) =>!LOCKED_STEPS.has(id));
+/** 默认启用的规则（defaultEnabled === false 的新规则默认关闭） */
+const DEFAULT_ENABLED_IDS = PIPELINE_STEPS.cleanup
+.filter((s) => s.defaultEnabled !== false)
+.map((s) => s.id);
 
 const DEFAULT_BOOK: BookInfo = {
 bookName: '',
 chapter: '',
 author: '',
 site: '',
-isFirst: true,
-addHeader: true,
+isFirst: false,
+addHeader: false,
 };
 
 function debounce<T extends unknown[]>(fn: (...args: T) => void, ms: number) {
@@ -49,27 +55,6 @@ function fmtTime(d: Date): string {
 return d.toTimeString().slice(0, 5);
 }
 
-async function copyText(text: string): Promise<boolean> {
-try {
-await navigator.clipboard.writeText(text);
-return true;
-} catch {
-// 降级：隐藏 textarea + execCommand
-try {
-const ta = document.createElement('textarea');
-ta.value = text;
-ta.style.position = 'fixed';
-ta.style.opacity = '0';
-document.body.appendChild(ta);
-ta.select();
-const ok = document.execCommand('copy');
-ta.remove();
-return ok;
-} catch {
-return false;
-}
-}
-}
 
 function newJobId(): string {
   try {
@@ -81,9 +66,18 @@ function newJobId(): string {
 
 export function initUI(root: HTMLElement): void {
 const book = {...DEFAULT_BOOK,...loadJSON<Partial<BookInfo>>(BOOK_KEY, {})};
-let enabledIds = loadJSON<string[]>(RULES_KEY, CLEANUP_IDS);
-// 兼容旧数据：过滤掉未知 id，补上新增的
+let enabledIds = loadJSON<string[]>(RULES_KEY, DEFAULT_ENABLED_IDS);
+// 兼容旧数据：过滤掉未知 id（新增的默认关闭规则保持关闭）
 enabledIds = CLEANUP_IDS.filter((id) => enabledIds.includes(id));
+
+/** 规则显示/执行顺序（用户可调，持久化） */
+let ruleOrder = loadJSON<string[]>(RULES_ORDER_KEY, CLEANUP_IDS);
+// 清理未知 id，新增规则补到末尾
+ruleOrder = [
+...ruleOrder.filter((id) => CLEANUP_IDS.includes(id)),
+...CLEANUP_IDS.filter((id) =>!ruleOrder.includes(id)),
+];
+const persistOrder = () => saveJSON(RULES_ORDER_KEY, ruleOrder);
 
 root.innerHTML = `
 <header class="topbar">
@@ -95,20 +89,12 @@ root.innerHTML = `
 <button class="btn" data-pipeline="typesetSplit" title="快捷键 F9">分段排版</button>
 <button class="btn" data-pipeline="typesetRead">阅读排版</button>
 </nav>
-<div class="top-actions">
-<button class="btn ghost" id="btn-convert" title="转换编辑器内文本">转为繁体</button>
-<button class="btn ghost" id="btn-copy" title="快捷键 F10">复制全文</button>
-</div>
 </header>
 <div class="docbar" aria-label="文档操作">
 <button class="chip" id="btn-new">新建</button>
 <button class="chip" id="btn-save">保存草稿</button>
 <button class="chip" id="btn-restore">还原草稿</button>
 <button class="chip danger" id="btn-clear">清空</button>
-<span class="sep"></span>
-<span class="lbl">插入</span>
-<button class="chip" id="btn-insert-tbc">（未完待续）</button>
-<button class="chip" id="btn-insert-end">（全文完）</button>
 <span class="spacer"></span>
 <button class="chip" id="btn-rediff" hidden>查看上次 diff</button>
 </div>
@@ -126,13 +112,15 @@ root.innerHTML = `
 </section>
 <section class="panel">
 <h2>整理规则 <button class="link" id="btn-rules-reset">重置</button></h2>
-<p class="hint">「一键整理」启用的步骤，Init / End 恒启用</p>
+<p class="hint">「一键整理」启用的步骤，Init / End 恒启用；↑↓ 可调顺序</p>
 <ul class="rules" id="rules-list"></ul>
 <div class="rules-io">
+<button class="chip" id="btn-quote-check">引号配对检查</button>
 <button class="chip" id="btn-rules-export">导出 JSON</button>
 <button class="chip" id="btn-rules-import">导入 JSON</button>
 <input type="file" id="rules-file" accept="application/json,.json" hidden>
 </div>
+<div class="quote-results" id="quote-results" hidden></div>
 </section>
 </aside>
 <main class="editor-pane"><div id="editor"></div></main>
@@ -276,8 +264,18 @@ setStatus(`运行中… ${progressLabel.textContent}`);
 const label = (msg as { label?: string}).label || currentLabel;
 setRunning(false);
 currentJob = null;
+if (currentPipeline === 'checkQuotes') {
+try {
+showQuoteResults(JSON.parse(msg.result) as QuoteIssue[]);
+setStatus('引号检查完成');
+} catch {
+setStatus('引号检查结果解析失败');
+}
+} else {
 setStatus('完成，等待预览确认');
 openDiff({ original: lastInput, result: msg.result, label});
+}
+currentPipeline = '';
 } else {
 setRunning(false);
 currentJob = null;
@@ -292,6 +290,58 @@ setStatus(`Worker 错误：${e.message}`);
 
 let currentLabel = '';
 let lastInput = '';
+/** 当前任务的 pipeline（用于区分 checkQuotes 的结果展示） */
+let currentPipeline: string = '';
+
+/** 引号配对检查：只读，不修改文本，结果列在规则面板下方 */
+function runQuoteCheck() {
+if (currentJob) {
+setStatus('有任务正在运行，请稍候…');
+return;
+}
+const text = editor.getValue();
+if (!text) {
+setStatus('编辑器为空，先粘贴文本');
+editor.focus();
+return;
+}
+const req: RunRequest = { kind: 'run', jobId: newJobId(), pipeline: 'checkQuotes', text};
+currentJob = req.jobId;
+currentLabel = '引号配对检查';
+currentPipeline = 'checkQuotes';
+setRunning(true);
+progressBar.style.width = '0%';
+progressBar.classList.add('indeterminate');
+progressLabel.textContent = currentLabel;
+setStatus(`开始：${currentLabel}…`);
+worker.postMessage(req);
+}
+
+const quoteResults = $('#quote-results');
+const showQuoteResults = (issues: QuoteIssue[]) => {
+quoteResults.hidden = false;
+if (issues.length === 0) {
+quoteResults.innerHTML = '<p class="quote-ok">引号全部配对，没有发现可疑行。</p>';
+return;
+}
+quoteResults.innerHTML =
+`<p class="quote-head">发现 ${issues.length} 行引号可疑（点击行号跳到该行）：</p><ul>` +
+issues
+.map(
+(x) =>
+`<li><button class="link" data-goto="${x.line}">第 ${x.line} 行</button>` +
+`<span class="quote-detail">${escapeHtml(x.detail)}</span>` +
+`<div class="quote-text">${escapeHtml(x.text)}</div></li>`,
+)
+.join('') +
+'</ul>';
+};
+quoteResults.addEventListener('click', (e) => {
+const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-goto]');
+if (!btn) return;
+editor.gotoLine(Number(btn.dataset.goto));
+});
+$('#btn-quote-check').addEventListener('click', runQuoteCheck);
 
 function runPipeline(pipeline: PipelineId | 'singleStep', stepId?: string) {
 if (currentJob) {
@@ -307,7 +357,10 @@ return;
 const label =
 pipeline === 'singleStep'? `单步：${stepTitle(stepId!)}`: PIPELINE_LABEL[pipeline];
 const req: RunRequest = { kind: 'run', jobId: newJobId(), pipeline, text};
-if (pipeline === 'cleanup') req.enabledIds = enabledIds;
+if (pipeline === 'cleanup') {
+req.enabledIds = enabledIds;
+req.order = ruleOrder;
+}
 if (pipeline === 'typesetSplit') {
 req.splitOptions = {
 author: book.author.trim(),
@@ -320,6 +373,7 @@ if (pipeline === 'singleStep') req.stepId = stepId;
 
 currentJob = req.jobId;
 currentLabel = label;
+currentPipeline = pipeline;
 lastInput = text;
 setRunning(true);
 progressBar.style.width = '0%';
@@ -378,7 +432,7 @@ refreshTitle();
 /* ---------------- 规则面板 ---------------- */
 const rulesList = $('#rules-list');
 const renderRules = () => {
-rulesList.innerHTML = CLEANUP_IDS.map((id) => {
+rulesList.innerHTML = ruleOrder.map((id, idx) => {
 let title = id;
 let desc = '';
 try {
@@ -390,6 +444,7 @@ desc = t.description || '';
 }
 const locked = LOCKED_STEPS.has(id);
 const checked = locked || enabledIds.includes(id);
+const isNewOptIn = !locked &&!DEFAULT_ENABLED_IDS.includes(id);
 return `<li class="rule${locked? ' locked': ''}">
 <label class="rule-check">
 <input type="checkbox" data-rule="${id}" ${checked? 'checked': ''} ${locked? 'disabled': ''}>
@@ -397,12 +452,22 @@ return `<li class="rule${locked? ' locked': ''}">
 <div class="rule-meta">
 <div class="rule-title">${escapeHtml(title)}
 ${locked? '<span class="tag">恒启用</span>': ''}
+${isNewOptIn? '<span class="tag tag-opt">默认关闭</span>': ''}
 ${!locked? `<button class="link" data-run-step="${id}">单步运行</button>`: ''}
+<span class="rule-move">
+<button class="link" data-move="-1" data-rule="${id}" ${idx === 0? 'disabled': ''} title="上移">↑</button>
+<button class="link" data-move="1" data-rule="${id}" ${idx === ruleOrder.length - 1? 'disabled': ''} title="下移">↓</button>
+</span>
 </div>
 ${desc? `<div class="rule-desc">${escapeHtml(desc)}</div>`: ''}
 </div>
 </li>`;
-}).join('');
+}).join('') +
+`<li class="rule"><div class="rule-meta">` +
+`<div class="rule-title">简繁转换<span class="tag tag-opt">手动</span>` +
+`<button class="link" data-run-step="__convert">单步运行</button></div>` +
+`<div class="rule-desc">简繁互转：点一次转繁体，再点一次转回简体；只处理编辑器文本，不进入一键整理</div>` +
+`</div></li>`;
 };
 const escapeHtml = (s: string) =>
 s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -419,19 +484,39 @@ saveJSON(RULES_KEY, enabledIds);
 setStatus(`规则已更新：${enabledIds.length}/${CLEANUP_IDS.length} 步启用`);
 });
 rulesList.addEventListener('click', (e) => {
+const moveBtn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-move]');
+if (moveBtn &&!moveBtn.disabled) {
+const id = moveBtn.dataset.rule!;
+const delta = Number(moveBtn.dataset.move);
+const idx = ruleOrder.indexOf(id);
+const j = idx + delta;
+if (idx >= 0 && j >= 0 && j < ruleOrder.length) {
+[ruleOrder[idx], ruleOrder[j]] = [ruleOrder[j], ruleOrder[idx]];
+persistOrder();
+renderRules();
+setStatus('规则顺序已更新');
+}
+return;
+}
 const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-run-step]');
 if (!btn) return;
+if (btn.dataset.runStep === '__convert') {
+runConvert();
+return;
+}
 runPipeline('singleStep', btn.dataset.runStep!);
 });
 
 $('#btn-rules-reset').addEventListener('click', () => {
-enabledIds = [...CLEANUP_IDS];
+enabledIds = [...DEFAULT_ENABLED_IDS];
+ruleOrder = [...CLEANUP_IDS];
 saveJSON(RULES_KEY, enabledIds);
+persistOrder();
 renderRules();
-setStatus('规则已重置为默认（全开）');
+setStatus('规则已重置为默认');
 });
 $('#btn-rules-export').addEventListener('click', () => {
-const blob = new Blob([JSON.stringify({ version: 1, enabledIds}, null, 2)], {
+const blob = new Blob([JSON.stringify({ version: 2, enabledIds, order: ruleOrder}, null, 2)], {
 type: 'application/json',
 });
 const a = document.createElement('a');
@@ -456,6 +541,16 @@ if (!Array.isArray(ids)) throw new Error('格式错误');
 const valid = ids.filter((id) => TOGGLEABLE_IDS.includes(id));
 enabledIds = [...LOCKED_STEPS,...valid].filter((id) => CLEANUP_IDS.includes(id));
 saveJSON(RULES_KEY, enabledIds);
+// 顺序：v2 格式带 order，老格式/数组格式沿用默认顺序
+const rawOrder: unknown = !Array.isArray(data)? data.order: undefined;
+if (Array.isArray(rawOrder)) {
+const wanted = (rawOrder as string[]).filter((id) => CLEANUP_IDS.includes(id));
+ruleOrder = [
+...wanted,
+...CLEANUP_IDS.filter((id) =>!wanted.includes(id)),
+];
+persistOrder();
+}
 renderRules();
 setStatus(`已导入规则：${valid.length} 步启用`);
 } catch {
@@ -494,28 +589,14 @@ draftInfo.textContent = '';
 editor.focus();
 setStatus('已清空文档与草稿');
 });
-$('#btn-copy').addEventListener('click', async () => {
-const text = editor.getValue();
-if (!text) {
-setStatus('编辑器为空，无可复制内容');
-return;
-}
-const ok = await copyText(text);
-setStatus(ok? '已复制全文到剪贴板': '复制失败：浏览器拒绝了剪贴板权限');
-editor.focus();
-});
-$('#btn-insert-tbc').addEventListener('click', () => editor.insertAtCursor('（未完待续）'));
-$('#btn-insert-end').addEventListener('click', () => editor.insertAtCursor('（全文完）'));
 
-/* ---------------- 简繁转换（只转编辑器文本） ---------------- */
-const btnConvert = $('#btn-convert') as HTMLButtonElement;
-btnConvert.addEventListener('click', async () => {
+/* ---------------- 简繁转换（整理规则面板里的单步运行项） ---------------- */
+async function runConvert() {
 const text = editor.getValue();
 if (!text) {
 setStatus('编辑器为空，无可转换内容');
 return;
 }
-btnConvert.disabled = true;
 setStatus('正在加载转换词典…');
 try {
 const { Converter} = await import('opencc-js');
@@ -524,16 +605,15 @@ convertDir === 's2t'
 ? Converter({ from: 'cn', to: 'tw'})
 : Converter({ from: 'tw', to: 'cn'});
 editor.setValue(convert(text));
+const done = convertDir === 's2t'? '已转为繁体': '已转为简体';
 convertDir = convertDir === 's2t'? 't2s': 's2t';
-btnConvert.textContent = convertDir === 's2t'? '转为繁体': '转为简体';
-setStatus('简繁转换完成');
+setStatus(`${done}（再点一次可转回）`);
 } catch (err) {
 setStatus(`转换失败：${err instanceof Error? err.message: String(err)}`);
 } finally {
-btnConvert.disabled = false;
 editor.focus();
 }
-});
+}
 
 /* ---------------- diff 按钮 ---------------- */
 $('#diff-apply').addEventListener('click', () => {
@@ -587,9 +667,6 @@ runPipeline('cleanup');
 } else if (e.key === 'F9') {
 e.preventDefault();
 runPipeline('typesetSplit');
-} else if (e.key === 'F10') {
-e.preventDefault();
-$('#btn-copy').click();
 } else if (e.key === 'Escape' &&!diffOverlay.hidden) {
 closeDiff();
 }

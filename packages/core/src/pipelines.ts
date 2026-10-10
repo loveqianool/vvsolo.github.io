@@ -33,21 +33,24 @@ trims,
 } from './utils';
 
 export const PIPELINE_STEPS: Record<PipelineId, Step[]> = {
-cleanup: [
-'Init',
-'HtmlEntity',
-'Unicode',
-'Variant',
-'SerialNumber',
-'Punctuation',
-'NumberLetter',
-'Chapter',
-'Space',
-'Separator',
-'Quote',
-'English',
-'End',
-].map((id) => ({ id})),
+  cleanup: [
+    'Init',
+    'HtmlEntity',
+    // HtmlTag / EmptyBrackets 为新增的可选规则，默认关闭（defaultEnabled: false）
+    { id: 'HtmlTag', defaultEnabled: false },
+    'Unicode',
+    'Variant',
+    'SerialNumber',
+    'Punctuation',
+    'NumberLetter',
+    'Chapter',
+    'Space',
+    'Separator',
+    'Quote',
+    { id: 'EmptyBrackets', defaultEnabled: false },
+    'English',
+    'End',
+  ].map((s) => (typeof s === 'string' ? { id: s } : s)),
 // 函数式 pipeline：steps 为空（见文件头注释）
 cleanupEx: [],
 typesetSplit: [],
@@ -60,15 +63,34 @@ return { config: ctx?.config?? defaultConfig, onStep: ctx?.onStep};
 
 /** 一键整理：跑 cleanup steps，被 enabledIds 排除的步骤设 enabled:false */
 export function runCleanup(
-text: string,
-enabledIds?: string[],
-ctx?: Partial<RunContext>,
+  text: string,
+  enabledIds?: string[],
+  ctx?: Partial<RunContext>,
+  order?: string[],
 ): string {
-const steps = PIPELINE_STEPS.cleanup.map((s) => ({
-...s,
-enabled: enabledIds? enabledIds.includes(s.id): true,
-}));
-return runPipeline(text, steps, ctx);
+  const base = PIPELINE_STEPS.cleanup;
+  // order：用户自定义的步骤顺序；未列出的步骤保持原相对顺序缀在后面
+  let steps = base;
+  if (order && order.length > 0) {
+    const seen = new Set<string>();
+    const ordered: Step[] = [];
+    for (const id of order) {
+      const s = base.find((x) => x.id === id);
+      if (s && !seen.has(id)) {
+        seen.add(id);
+        ordered.push(s);
+      }
+    }
+    for (const s of base) if (!seen.has(s.id)) ordered.push(s);
+    steps = ordered;
+  }
+  const mapped = steps.map((s) => ({
+    ...s,
+    enabled: enabledIds
+      ? enabledIds.includes(s.id)
+      : s.defaultEnabled !== false,
+  }));
+  return runPipeline(text, mapped, ctx);
 }
 
 /* ------------------------------------------------------------------ */
@@ -250,9 +272,9 @@ return s;
 export interface TypesetSplitOptions {
 author?: string;
 site?: string;
-/** 是否首发（旧版 #Check_0），缺省 true */
+/** 是否首发（旧版 #Check_0），缺省 false */
 isFirst?: boolean;
-/** 是否添加标头（旧版 #Check_AddTop），缺省 true */
+/** 是否添加标头（旧版 #Check_AddTop），缺省 false */
 addHeader?: boolean;
 /** 标头日期，缺省 new Date() */
 now?: Date;
@@ -299,7 +321,7 @@ s = T('Finish')(s);
 s = rpAt(s, ['‘’“”', '『』「」']);
 s = '\n' + s;
 
-if (opts.addHeader === false) return s;
+if (opts.addHeader !== true) return s;
 // 插入标头
 const dateStr = new Intl.DateTimeFormat('zh-CN', {
 year: 'numeric',
@@ -311,7 +333,7 @@ const head = fmt(
 {
 w: opts.author,
 b: opts.site,
-y: opts.isFirst === false? '否': '是',
+y: opts.isFirst === true? '是': '否',
 d: dateStr,
 n: (s.length - findCount(s, /[　\s]/g)).toLocaleString(),
 },

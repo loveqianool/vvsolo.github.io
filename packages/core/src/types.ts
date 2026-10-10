@@ -22,5 +22,7 @@ export interface Step {
   id: string;
   args?: string[];
   enabled?: boolean;
+  /** 为 false 时默认不启用（用户手动开启后才跑），缺省 true */
+  defaultEnabled?: boolean;
 }
 export type PipelineId = 'cleanup' | 'cleanupEx' | 'typesetSplit' | 'typesetRead';

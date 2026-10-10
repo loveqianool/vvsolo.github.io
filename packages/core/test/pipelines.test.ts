@@ -50,17 +50,41 @@ describe('typesetSplit pipeline', () => {
   for (const c of loadPipelineFixtures('typesetSplit')) {
     it(c.corpus, () => {
       const expected = c.output.replace('__DATE__', FIXED_DATE);
-      const actual = runTypesetSplit(
-        c.input,
-        {
-          author: c.options.author as string,
-          site: c.options.site as string,
-          now: FIXED_NOW,
-        },
-      );
+      const actual = runTypesetSplit(c.input, {
+        author: c.options.author as string,
+        site: c.options.site as string,
+        now: FIXED_NOW,
+        // fixture 是按旧默认值（标头开、首发开）生成的，这里显式锁定该行为
+        addHeader: true,
+        isFirst: true,
+      });
       expect(actual).toBe(expected);
     });
   }
+  it('addHeader/isFirst 缺省为 false', () => {
+    const out = runTypesetSplit('第一章\n正文内容。', {
+      author: 'A',
+      site: 'B',
+      now: FIXED_NOW,
+    });
+    expect(out).not.toContain('作者：');
+    expect(out).not.toContain('是否首发');
+    const withHeader = runTypesetSplit('第一章\n正文内容。', {
+      author: 'A',
+      site: 'B',
+      now: FIXED_NOW,
+      addHeader: true,
+    });
+    expect(withHeader).toContain('是否首发：否');
+    const first = runTypesetSplit('第一章\n正文内容。', {
+      author: 'A',
+      site: 'B',
+      now: FIXED_NOW,
+      addHeader: true,
+      isFirst: true,
+    });
+    expect(first).toContain('是否首发：是');
+  });
 });
 
 describe('typesetRead pipeline', () => {

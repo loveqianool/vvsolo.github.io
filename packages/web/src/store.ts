@@ -36,3 +36,4 @@ export interface BookInfo {
 export const BOOK_KEY = 'book';
 export const DRAFT_KEY = 'draft';
 export const RULES_KEY = 'rules.enabled';
+export const RULES_ORDER_KEY = 'rules.order';

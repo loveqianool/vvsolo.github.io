@@ -1,4 +1,5 @@
 import {
+  checkQuotes,
   defaultConfig,
   getTransform,
   runCleanup,
@@ -8,6 +9,7 @@ import {
 } from '@typeset/core';
 import type {
   PipelineId,
+  QuoteIssue,
   RunContext,
   TypesetConfig,
   TypesetSplitOptions,
@@ -18,12 +20,14 @@ export interface RunRequest {
   kind: 'run';
   /** 幂等标识，主线程用它匹配回包 */
   jobId: string;
-  /** 四条业务 pipeline，或 singleStep（规则面板的单步运行） */
-  pipeline: PipelineId | 'singleStep';
+  /** 四条业务 pipeline，或 singleStep（规则面板的单步运行），或 checkQuotes（引号配对检查） */
+  pipeline: PipelineId | 'singleStep' | 'checkQuotes';
   /** 输入文本：postMessage 传 10MB 字符串走结构化克隆即可，不做多余拷贝 */
   text: string;
-  /** cleanup 的启用步骤 id；不传 = 全开 */
+  /** cleanup 的启用步骤 id；不传 = 按默认开关 */
   enabledIds?: string[];
+  /** cleanup 的步骤顺序（id 数组）；不传 = 默认顺序 */
+  order?: string[];
   /** typesetSplit 的书籍/标头选项 */
   splitOptions?: TypesetSplitOptions;
   /** singleStep 时指定 transform id */
@@ -59,8 +63,14 @@ ctx.onmessage = (e) => {
     let result: string;
     switch (msg.pipeline) {
       case 'cleanup':
-        result = runCleanup(msg.text, msg.enabledIds, runCtx);
+        result = runCleanup(msg.text, msg.enabledIds, runCtx, msg.order);
         break;
+      case 'checkQuotes': {
+        progress('checkQuotes', 0, 1);
+        const issues: QuoteIssue[] = checkQuotes(msg.text);
+        result = JSON.stringify(issues);
+        break;
+      }
       case 'cleanupEx':
         // 函数式 pipeline，内部不逐步骤报进度：先给一个粗粒度进度
         progress('cleanupEx', 0, 1);

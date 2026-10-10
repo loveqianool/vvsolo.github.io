@@ -20,6 +20,8 @@ export interface EditorHandle {
   focus(): void;
   /** 在光标处插入文本（替换选中区） */
   insertAtCursor(text: string): void;
+  /** 跳到指定行（1-based），并把光标放到行首 */
+  gotoLine(line: number): void;
 }
 
 /* 中文衬线 + 英文等宽：按字形回退，中文走衬线，ASCII 走等宽 */
@@ -94,6 +96,15 @@ export function createEditor(
       view.dispatch({
         changes: { from, to, insert: text },
         selection: { anchor: from + text.length },
+      });
+      view.focus();
+    },
+    gotoLine: (line: number) => {
+      const lineNo = Math.max(1, Math.min(line, view.state.doc.lines));
+      const pos = view.state.doc.line(lineNo).from;
+      view.dispatch({
+        selection: { anchor: pos },
+        scrollIntoView: true,
       });
       view.focus();
     },
