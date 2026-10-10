@@ -1,5 +1,6 @@
 import { createEditor, type EditorHandle} from './editor';
-import { renderDiff} from './diff';
+import { diffToRows, renderRows} from './diff';
+import type { Row } from './diff';
 import {
 BOOK_KEY,
 DRAFT_KEY,
@@ -145,6 +146,7 @@ root.innerHTML = `
 <header>
 <h2 id="diff-title">排版预览</h2>
 <span class="diff-summary" id="diff-summary"></span>
+<label class="diff-toggle"><input type="checkbox" id="diff-changed-only">只看改动</label>
 <span class="spacer"></span>
 <button class="btn primary" id="diff-apply">应用结果</button>
 <button class="btn" id="diff-discard">放弃</button>
@@ -231,22 +233,43 @@ result: string;
 label: string;
 }
 let lastDiff: LastDiff | null = null;
+let lastRows: Row[] | null = null;
+let lastBaseSummary: { changeCount: number; addedLines: number; removedLines: number } | null = null;
 const diffOverlay = $('#diff-overlay');
 const btnRediff = $('#btn-rediff');
+const chkChangedOnly = $('#diff-changed-only') as HTMLInputElement;
+
+function refreshDiffView() {
+if (!lastRows || !lastBaseSummary) return;
+const changedOnly = chkChangedOnly.checked;
+const { leftHtml, rightHtml, truncated } = renderRows(lastRows, { changedOnly });
+$('#diff-left').innerHTML = leftHtml;
+$('#diff-right').innerHTML = rightHtml;
+$('#diff-left').scrollTop = 0;
+$('#diff-right').scrollTop = 0;
+const parts = [
+`共 ${lastBaseSummary.changeCount} 处改动`,
+`+${lastBaseSummary.addedLines} 行`,
+`−${lastBaseSummary.removedLines} 行`,
+];
+if (changedOnly) parts.push('（仅显示改动行）');
+else if (truncated) parts.push('（文本过大，仅显示改动区域）');
+if (lastBaseSummary.changeCount === 0) parts.push('（文本无变化）');
+$('#diff-summary').textContent = parts.join(' ');
+}
 
 function openDiff(d: LastDiff) {
 lastDiff = d;
 $('#diff-title').textContent = `${d.label} · 预览`;
-const { leftHtml, rightHtml, summary} = renderDiff(d.original, d.result);
-$('#diff-left').innerHTML = leftHtml;
-$('#diff-right').innerHTML = rightHtml;
-const parts = [`共 ${summary.changeCount} 处改动`, `+${summary.addedLines} 行`, `−${summary.removedLines} 行`];
-if (summary.truncated) parts.push('（文本过大，仅显示改动区域）');
-if (summary.changeCount === 0) parts.push('（文本无变化）');
-$('#diff-summary').textContent = parts.join(' ');
+const { rows, summary } = diffToRows(d.original, d.result);
+lastRows = rows;
+lastBaseSummary = summary;
+chkChangedOnly.checked = false;
+refreshDiffView();
 diffOverlay.hidden = false;
 btnRediff.hidden = false;
 }
+chkChangedOnly.addEventListener('change', refreshDiffView);
 const closeDiff = () => {
 diffOverlay.hidden = true;
 };

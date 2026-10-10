@@ -432,6 +432,17 @@ button { font-family: inherit; }
 }
 .diff-modal h2 { font-family: var(--serif); font-size: 16px; margin: 0; letter-spacing: 1px; }
 .diff-summary { font-size: 12.5px; color: var(--text-dim); font-family: var(--mono); }
+.diff-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+  margin-left: 4px;
+}
+.diff-toggle input { accent-color: var(--accent); cursor: pointer; }
 .diff-body { display: flex; flex: 1; min-height: 0; }
 .diff-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .diff-col + .diff-col { border-left: 1px solid var(--border); }

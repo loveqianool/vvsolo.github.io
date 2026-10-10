@@ -26,6 +26,7 @@ interface Row {
   right: string | null;
   cls: '' | 'del' | 'add' | 'gap';
 }
+export type { Row };
 
 /**
  * 把 diffLines 的 parts 转成左右对齐的行：
@@ -107,33 +108,52 @@ function rowHtml(text: string | null, sideCls: string): string {
 }
 
 /**
- * 渲染左右并排 diff，返回 {leftHtml, rightHtml, summary}。
- * 大文本只取改动 hunk ± 上下文。
+ * 只保留改动行（cls !== ''），hunk 之间用 ⋯ 分隔。
  */
-export function renderDiff(
-  original: string,
-  result: string,
-): { leftHtml: string; rightHtml: string; summary: DiffSummary } {
-  const changes = diffLines(original, result);
-  const rows = buildRows(changes);
-  const base = summarize(changes);
+export function filterChangedOnly(rows: Row[]): Row[] {
+  const view: Row[] = [];
+  let lastIdx = -1;
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].cls === '') continue;
+    // 与上一个改动行不相邻（中间隔了未改动行）则加 ⋯ 分隔
+    if (lastIdx !== -1 && i > lastIdx + 1) {
+      view.push({ left: '⋯', right: '⋯', cls: 'gap' });
+    }
+    view.push(rows[i]);
+    lastIdx = i;
+  }
+  return view;
+}
 
+/** 大文本的 hunk 截断：只取改动区域 ± 上下文 */
+function truncateHunks(rows: Row[]): Row[] {
+  const view: Row[] = [];
+  let lastEnd = -Infinity;
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].cls !== '') {
+      const start = Math.max(0, i - HUNK_CONTEXT);
+      const end = Math.min(rows.length - 1, i + HUNK_CONTEXT);
+      if (start > lastEnd + 1) view.push({ left: '⋯', right: '⋯', cls: 'gap' });
+      for (let k = Math.max(start, lastEnd + 1); k <= end; k++) view.push(rows[k]);
+      lastEnd = end;
+      i = end;
+    }
+  }
+  return view;
+}
+
+/** 由 rows 生成左右两列 HTML（不含 diff 计算，可复用缓存的 rows 反复渲染） */
+export function renderRows(
+  rows: Row[],
+  opts?: { changedOnly?: boolean },
+): { leftHtml: string; rightHtml: string; truncated: boolean } {
   let view: Row[] = rows;
   let truncated = false;
-  if (rows.length > FULL_RENDER_LINE_LIMIT) {
+  if (opts?.changedOnly) {
+    view = filterChangedOnly(rows);
+  } else if (rows.length > FULL_RENDER_LINE_LIMIT) {
     truncated = true;
-    view = [];
-    let lastEnd = -Infinity;
-    for (let i = 0; i < rows.length; i++) {
-      if (rows[i].cls !== '') {
-        const start = Math.max(0, i - HUNK_CONTEXT);
-        const end = Math.min(rows.length - 1, i + HUNK_CONTEXT);
-        if (start > lastEnd + 1) view.push({ left: '⋯', right: '⋯', cls: 'gap' });
-        for (let k = Math.max(start, lastEnd + 1); k <= end; k++) view.push(rows[k]);
-        lastEnd = end;
-        i = end;
-      }
-    }
+    view = truncateHunks(rows);
   }
 
   const left: string[] = [];
@@ -150,5 +170,28 @@ export function renderDiff(
     left.push(rowHtml(r.left, leftCls));
     right.push(rowHtml(r.right, rightCls));
   }
-  return { leftHtml: left.join(''), rightHtml: right.join(''), summary: { ...base, truncated } };
+  return { leftHtml: left.join(''), rightHtml: right.join(''), truncated };
+}
+
+/** diff 计算（行级），返回可缓存的 rows 与统计 */
+export function diffToRows(
+  original: string,
+  result: string,
+): { rows: Row[]; summary: Omit<DiffSummary, 'truncated'> } {
+  const changes = diffLines(original, result);
+  return { rows: buildRows(changes), summary: summarize(changes) };
+}
+
+/**
+ * 渲染左右并排 diff，返回 {leftHtml, rightHtml, summary}。
+ * 大文本只取改动 hunk ± 上下文；changedOnly 时只显示改动行。
+ */
+export function renderDiff(
+  original: string,
+  result: string,
+  opts?: { changedOnly?: boolean },
+): { leftHtml: string; rightHtml: string; summary: DiffSummary } {
+  const { rows, summary } = diffToRows(original, result);
+  const { leftHtml, rightHtml, truncated } = renderRows(rows, opts);
+  return { leftHtml, rightHtml, summary: { ...summary, truncated } };
 }
