@@ -122,7 +122,7 @@ root.innerHTML = `
 </section>
 <section class="panel">
 <h2>整理规则 <button class="link" id="btn-rules-reset">重置</button></h2>
-<p class="hint">「一键整理」启用的步骤，Init / End 恒启用；↑↓ 可调顺序</p>
+<p class="hint">「一键整理」启用的步骤，Init / End 恒启用；点击规则名可单步运行；↑↓ 可调顺序</p>
 <ul class="rules" id="rules-list"></ul>
 <div class="rules-io">
 <button class="chip" id="btn-rules-export">导出 JSON</button>
@@ -717,15 +717,18 @@ desc = t.description || '';
 const locked = LOCKED_STEPS.has(id);
 const checked = locked || enabledIds.includes(id);
 const isNewOptIn = !locked &&!DEFAULT_ENABLED_IDS.includes(id);
+// End 为收尾步骤不提供单步；Init 允许单步
+const canSingleStep = id !== 'End';
 return `<li class="rule${locked? ' locked': ''}">
 <label class="rule-check">
 <input type="checkbox" data-rule="${id}" ${checked? 'checked': ''} ${locked? 'disabled': ''}>
 </label>
 <div class="rule-meta">
-<div class="rule-title">${escapeHtml(title)}
+<div class="rule-title">${canSingleStep
+? `<button class="link rule-name" data-run-step="${id}" title="点击单步运行此规则">${escapeHtml(title)}</button>`
+: escapeHtml(title)}
 ${locked? '<span class="tag">恒启用</span>': ''}
 ${isNewOptIn? '<span class="tag tag-opt">默认关闭</span>': ''}
-${!locked? `<button class="link" data-run-step="${id}">单步运行</button>`: ''}
 <span class="rule-move">
 <button class="link" data-move="-1" data-rule="${id}" ${idx === 0? 'disabled': ''} title="上移">↑</button>
 <button class="link" data-move="1" data-rule="${id}" ${idx === ruleOrder.length - 1? 'disabled': ''} title="下移">↓</button>
@@ -736,8 +739,7 @@ ${desc? `<div class="rule-desc">${escapeHtml(desc)}</div>`: ''}
 </li>`;
 }).join('') +
 `<li class="rule"><div class="rule-meta">` +
-`<div class="rule-title">简繁转换<span class="tag tag-opt">手动</span>` +
-`<button class="link" data-run-step="__convert">单步运行</button></div>` +
+`<div class="rule-title"><button class="link rule-name" data-run-step="__convert" title="点击单步运行">简繁转换</button><span class="tag tag-opt">手动</span></div>` +
 `<div class="rule-desc">简繁互转：点一次转繁体，再点一次转回简体；只处理编辑器文本，不进入一键整理</div>` +
 `</div></li>`;
 };

@@ -258,6 +258,17 @@ button { font-family: inherit; }
 .link:hover { color: var(--accent); }
 .link:disabled { opacity: 0.3; cursor: default; text-decoration: none; }
 .link:disabled:hover { color: var(--text-faint); }
+/* 规则名即单步运行按钮：平时如标题，悬停时提示可点 */
+.link.rule-name {
+  font-size: 13px;
+  color: var(--text);
+  text-decoration: none;
+}
+.link.rule-name:hover {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 .tag-opt {
   color: var(--text-faint);
   border-color: var(--text-faint);
