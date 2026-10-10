@@ -32,4 +32,11 @@ describe('detectChapters', () => {
     expect(toc).toHaveLength(1);
     expect(toc[0].title).toBe(line);
   });
+  it('detects very long chapter titles up to 280 chars', () => {
+    const line = '(99) ' + '超长标题'.repeat(50); // 200 字标题
+    expect(line.slice(5).length).toBeGreaterThan(80);
+    const toc = detectChapters(line);
+    expect(toc).toHaveLength(1);
+    expect(toc[0].title).toBe(line);
+  });
 });
