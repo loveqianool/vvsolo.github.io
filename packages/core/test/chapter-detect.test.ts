@@ -23,4 +23,13 @@ describe('detectChapters', () => {
     const toc = detectChapters('他说第一卷很好看。\n2024年1月1日\n');
     expect(toc).toEqual([]);
   });
+  it('detects long chapter titles up to 80 chars (was 40)', () => {
+    // 用户实测：41 字标题 "(2) 隐奸老婆！..." 之前因 en:{0,40} 被漏掉
+    const line =
+      '(2) 隐奸老婆！让老婆全裸摆出M字腿，翘高屁股被会长全身精油按摩，我在外面听得又绿又兴奋';
+    expect(line.slice(4).length).toBeGreaterThan(40);
+    const toc = detectChapters(line);
+    expect(toc).toHaveLength(1);
+    expect(toc[0].title).toBe(line);
+  });
 });

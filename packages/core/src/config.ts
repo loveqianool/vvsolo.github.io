@@ -52,7 +52,7 @@ rCoord: commReg(
 /** 原 `chap.common`：章节模板里的 `{$xxx}` 占位表（第二遍 fmt 用它展开）。 */
 export const chapterCommon: Record<string, string | string[]> = {
   sep: "： 　，、．·。—.,:|-",
-  en: "{0,40}",
+  en: "{0,80}",
   b: ["〖【\\[", "\\]】〗"],
   ct: "章",
   c: ["卷部", "集篇季册冊辑輯", "章折回幕节節话話"],
