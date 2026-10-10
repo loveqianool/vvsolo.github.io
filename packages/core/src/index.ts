@@ -5,5 +5,6 @@ export * from './utils';
 export * from './registry';
 export * from './pipelines';
 export * from './quoteCheck';
+export * from './longParaCheck';
 export { detectChapters, isChapterLine } from './transforms/chapter';
 export type { ChapterEntry } from './transforms/chapter';

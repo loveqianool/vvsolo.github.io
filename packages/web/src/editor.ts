@@ -6,6 +6,7 @@ import {
   lineNumbers,
 } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+import { foldEffect, foldState, unfoldEffect } from '@codemirror/language';
 import {
   highlightSelectionMatches,
   openSearchPanel,
@@ -28,6 +29,18 @@ export interface EditorHandle {
   gotoLine(line: number): void;
   /** 打开查找替换面板（同 Ctrl+F） */
   openSearch(): void;
+  /** 折叠指定区间（from < to），返回实际折叠的区间数 */
+  foldRanges(ranges: Array<{ from: number; to: number }>): number;
+  /** 展开所有已折叠区间 */
+  unfoldAll(): void;
+  /** 是否有已折叠区间 */
+  isFolded(): boolean;
+  /** 按行号取该行起止偏移（1-based） */
+  lineRange(line: number): { from: number; to: number };
+  /** 文档总行数 */
+  lineCount(): number;
+  /** 文档总长度（偏移） */
+  docLength(): number;
 }
 
 /* 中文衬线 + 英文等宽：按字形回退，中文走衬线，ASCII 走等宽 */
@@ -80,6 +93,7 @@ export function createEditor(
         highlightActiveLine(),
         highlightSelectionMatches(),
         history(),
+        foldState,
         EditorView.lineWrapping,
         keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
         darkTheme,
@@ -89,6 +103,16 @@ export function createEditor(
       ],
     }),
   });
+
+  /** 取当前实际折叠的区间（从 foldState 查，编辑后位置依然准确） */
+  const getFoldedRanges = (): Array<{ from: number; to: number }> => {
+    const out: Array<{ from: number; to: number }> = [];
+    const field = view.state.field(foldState, false);
+    field?.between(0, view.state.doc.length, (from: number, to: number) => {
+      out.push({ from, to });
+    });
+    return out;
+  };
 
   return {
     getValue: () => view.state.doc.toString(),
@@ -117,5 +141,23 @@ export function createEditor(
     openSearch: () => {
       openSearchPanel(view);
     },
+    foldRanges: (ranges) => {
+      const valid = ranges.filter((r) => r.to > r.from);
+      if (valid.length === 0) return 0;
+      view.dispatch({ effects: valid.map((r) => foldEffect.of(r)) });
+      return valid.length;
+    },
+    unfoldAll: () => {
+      const folded = getFoldedRanges();
+      if (folded.length === 0) return;
+      view.dispatch({ effects: folded.map((r) => unfoldEffect.of(r)) });
+    },
+    isFolded: () => getFoldedRanges().length > 0,
+    lineRange: (line) => {
+      const ln = view.state.doc.line(Math.max(1, Math.min(line, view.state.doc.lines)));
+      return { from: ln.from, to: ln.to };
+    },
+    lineCount: () => view.state.doc.lines,
+    docLength: () => view.state.doc.length,
   };
 }

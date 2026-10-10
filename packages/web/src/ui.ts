@@ -15,6 +15,7 @@ import {
 PIPELINE_STEPS,
 getTransform,
 type ChapterEntry,
+type LongParaIssue,
 type PipelineId,
 type QuoteIssue,
 } from '@typeset/core';
@@ -94,6 +95,7 @@ root.innerHTML = `
 <div class="top-actions">
 <button class="btn ghost" id="btn-toc">查看目录</button>
 <button class="btn ghost" id="btn-quote-check">引号检查</button>
+<button class="btn ghost" id="btn-longpara-check" title="找出超过 300 字的段落">长段落检查</button>
 <button class="btn ghost" id="btn-search" title="快捷键 Ctrl+F">查找替换</button>
 </div>
 </header>
@@ -102,6 +104,7 @@ root.innerHTML = `
 <button class="chip" id="btn-save">保存草稿</button>
 <button class="chip" id="btn-restore">还原草稿</button>
 <button class="chip danger" id="btn-clear">清空</button>
+<button class="chip" id="btn-fold">折叠章节</button>
 <span class="spacer"></span>
 <button class="chip" id="btn-rediff" hidden>查看上次 diff</button>
 </div>
@@ -190,20 +193,52 @@ draftInfo.textContent = `草稿已保存 ${fmtTime(new Date())}`;
 };
 const persistDraftDebounced = debounce(persistDraft, 2000);
 
-const editor: EditorHandle = createEditor($('#editor'), {
-initialValue: loadJSON<string>(DRAFT_KEY, ''),
-onChange: (text) => {
-charCount.textContent = `${text.length.toLocaleString()} 字`;
-persistDraftDebounced(text);
-},
-});
-charCount.textContent = `${editor.getValue().length.toLocaleString()} 字`;
-if (editor.getValue()) draftInfo.textContent = '已载入本地草稿';
-
-/* ---------------- Worker ---------------- */
+/* ---------------- Worker（提前创建，供统计用） ---------------- */
 const worker = new Worker(new URL('./worker.ts', import.meta.url), {
 type: 'module',
 });
+
+/* ---------------- 全文统计：字数（即时）+ 章节数（worker 防抖） ---------------- */
+let lastCharCount = 0;
+let lastChapterCount: number | null = null;
+let statsJob: string | null = null;
+let statsSeq = 0;
+function renderStats() {
+charCount.textContent =
+lastChapterCount === null
+? `${lastCharCount.toLocaleString()} 字`
+: `${lastCharCount.toLocaleString()} 字 · ${lastChapterCount} 章`;
+}
+function refreshStats(text: string) {
+if (!text) {
+lastChapterCount = null;
+renderStats();
+return;
+}
+statsSeq += 1;
+statsJob = `stats-${statsSeq}`;
+const req: RunRequest = { kind: 'run', jobId: statsJob, pipeline: 'detectChapters', text};
+worker.postMessage(req);
+}
+const refreshStatsDebounced = debounce(refreshStats, 1200);
+
+const editor: EditorHandle = createEditor($('#editor'), {
+initialValue: loadJSON<string>(DRAFT_KEY, ''),
+onChange: (text) => {
+lastCharCount = text.length;
+renderStats();
+persistDraftDebounced(text);
+refreshStatsDebounced(text);
+},
+});
+lastCharCount = editor.getValue().length;
+renderStats();
+if (editor.getValue()) {
+draftInfo.textContent = '已载入本地草稿';
+refreshStatsDebounced(editor.getValue());
+}
+
+/* ---------------- Worker 状态 ---------------- */
 let currentJob: string | null = null;
 let convertDir: 's2t' | 't2s' = 's2t';
 const pipelineBtns = [...root.querySelectorAll<HTMLButtonElement>('[data-pipeline]')];
@@ -289,6 +324,20 @@ diffRight.addEventListener('scroll', syncScroll(diffRight, diffLeft));
 
 worker.onmessage = (e: MessageEvent<WorkerOut>) => {
 const msg = e.data;
+// 统计任务走独立通道，不占用 currentJob
+if (typeof msg.jobId === 'string' && msg.jobId.startsWith('stats-')) {
+if (msg.kind === 'done' && msg.jobId === statsJob) {
+try {
+const toc = JSON.parse(msg.result) as ChapterEntry[];
+lastChapterCount = toc.length;
+} catch {
+lastChapterCount = null;
+}
+statsJob = null;
+renderStats();
+}
+return;
+}
 if (msg.jobId!== currentJob) return; // 过期任务回包直接丢弃
 if (msg.kind === 'progress') {
 if (msg.total <= 1) {
@@ -314,11 +363,24 @@ setStatus('引号检查完成');
 setStatus('引号检查结果解析失败');
 }
 } else if (currentPipeline === 'detectChapters') {
+if (foldPending) {
+foldPending = false;
+foldChapterBodies(JSON.parse(msg.result) as ChapterEntry[]);
+setStatus('章节已折叠，点击 … 可单独展开');
+} else {
 try {
 openToc(JSON.parse(msg.result) as ChapterEntry[]);
 setStatus('目录已生成');
 } catch {
 setStatus('目录结果解析失败');
+}
+}
+} else if (currentPipeline === 'checkLongParas') {
+try {
+showLongParaResults(JSON.parse(msg.result) as LongParaIssue[]);
+setStatus('长段落检查完成');
+} catch {
+setStatus('长段落检查结果解析失败');
 }
 } else {
 setStatus('完成，等待预览确认');
@@ -391,6 +453,50 @@ if (!btn) return;
 editor.gotoLine(Number(btn.dataset.goto));
 });
 $('#btn-quote-check').addEventListener('click', runQuoteCheck);
+
+/* ---------------- 长段落检查（>300 字，只读） ---------------- */
+const showLongParaResults = (issues: LongParaIssue[]) => {
+const el = $('#quote-results');
+el.hidden = false;
+if (issues.length === 0) {
+el.innerHTML = '<p class="quote-ok">没有超过 300 字的段落。</p>';
+return;
+}
+el.innerHTML =
+`<p class="quote-head">发现 ${issues.length} 个超长段落（点击行号跳到该行）：</p><ul>` +
+issues
+.map(
+(x) =>
+`<li><button class="link" data-goto="${x.line}">第 ${x.line} 行</button>` +
+`<span class="quote-detail">${x.length} 字</span>` +
+`<div class="quote-text">${escapeHtml(x.preview)}</div></li>`,
+)
+.join('') +
+'</ul>';
+};
+function runLongParaCheck() {
+if (currentJob) {
+setStatus('有任务正在运行，请稍候…');
+return;
+}
+const text = editor.getValue();
+if (!text) {
+setStatus('编辑器为空，先粘贴文本');
+editor.focus();
+return;
+}
+const req: RunRequest = { kind: 'run', jobId: newJobId(), pipeline: 'checkLongParas', text};
+currentJob = req.jobId;
+currentLabel = '长段落检查';
+currentPipeline = 'checkLongParas';
+setRunning(true);
+progressBar.style.width = '0%';
+progressBar.classList.add('indeterminate');
+progressLabel.textContent = currentLabel;
+setStatus(`开始：${currentLabel}…`);
+worker.postMessage(req);
+}
+$('#btn-longpara-check').addEventListener('click', runLongParaCheck);
 $('#btn-search').addEventListener('click', () => editor.openSearch());
 
 /* ---------------- 章节目录 ---------------- */
@@ -447,6 +553,61 @@ setStatus(`开始：${currentLabel}…`);
 worker.postMessage(req);
 }
 $('#btn-toc').addEventListener('click', runToc);
+
+/* ---------------- 章节折叠 ---------------- */
+let foldPending = false;
+const btnFold = $('#btn-fold') as HTMLButtonElement;
+function foldChapterBodies(toc: ChapterEntry[]) {
+if (toc.length === 0) {
+setStatus('未识别到章节，无可折叠内容');
+return;
+}
+const totalLines = editor.lineCount();
+const docLen = editor.docLength();
+const ranges: Array<{ from: number; to: number }> = [];
+for (let i = 0; i < toc.length; i++) {
+const from = editor.lineRange(toc[i].line).to; // 标题行末（含换行）
+const nextLine = i + 1 < toc.length ? toc[i + 1].line : totalLines + 1;
+const to = nextLine <= totalLines ? editor.lineRange(nextLine).from : docLen;
+if (to > from) ranges.push({ from, to });
+}
+const n = editor.foldRanges(ranges);
+if (n > 0) {
+btnFold.textContent = '展开章节';
+setStatus(`已折叠 ${n} 个章节正文，点击 … 可单独展开`);
+} else {
+setStatus('章节下无正文可折叠');
+}
+}
+btnFold.addEventListener('click', () => {
+if (editor.isFolded()) {
+editor.unfoldAll();
+btnFold.textContent = '折叠章节';
+setStatus('已展开全部章节');
+return;
+}
+if (currentJob) {
+setStatus('有任务正在运行，请稍候…');
+return;
+}
+const text = editor.getValue();
+if (!text) {
+setStatus('编辑器为空，先粘贴文本');
+editor.focus();
+return;
+}
+foldPending = true;
+const req: RunRequest = { kind: 'run', jobId: newJobId(), pipeline: 'detectChapters', text};
+currentJob = req.jobId;
+currentLabel = '章节折叠';
+currentPipeline = 'detectChapters';
+setRunning(true);
+progressBar.style.width = '0%';
+progressBar.classList.add('indeterminate');
+progressLabel.textContent = currentLabel;
+setStatus(`开始：${currentLabel}…`);
+worker.postMessage(req);
+});
 
 /* ---------------- 右下角文档跳转 ---------------- */
 $('#btn-goto-top').addEventListener('click', () => editor.gotoLine(1));
