@@ -44,6 +44,8 @@ export const PIPELINE_STEPS: Record<PipelineId, Step[]> = {
     'Punctuation',
     'NumberLetter',
     'Chapter',
+    // ChapterNumCn 为新增的可选规则，默认关闭（括号序号转中文）
+    { id: 'ChapterNumCn', defaultEnabled: false },
     'Space',
     'Separator',
     'Quote',
