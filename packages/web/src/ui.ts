@@ -717,16 +717,12 @@ desc = t.description || '';
 const locked = LOCKED_STEPS.has(id);
 const checked = locked || enabledIds.includes(id);
 const isNewOptIn = !locked &&!DEFAULT_ENABLED_IDS.includes(id);
-// End 为收尾步骤不提供单步；Init 允许单步
-const canSingleStep = id !== 'End';
 return `<li class="rule${locked? ' locked': ''}">
 <label class="rule-check">
 <input type="checkbox" data-rule="${id}" ${checked? 'checked': ''} ${locked? 'disabled': ''}>
 </label>
 <div class="rule-meta">
-<div class="rule-title">${canSingleStep
-? `<button class="link rule-name" data-run-step="${id}" title="点击单步运行此规则">${escapeHtml(title)}</button>`
-: escapeHtml(title)}
+<div class="rule-title"><button class="link rule-name" data-run-step="${id}" title="点击单步运行此规则">${escapeHtml(title)}</button>
 ${locked? '<span class="tag">恒启用</span>': ''}
 ${isNewOptIn? '<span class="tag tag-opt">默认关闭</span>': ''}
 <span class="rule-move">
