@@ -305,3 +305,73 @@ run(text: string, args: string[], ctx: RunContext): string {
 return chapterRun(text, args[0], args[1], args[2], ctx);
 },
 };
+
+/* ------------------------------------------------------------------ */
+/* 章节目录检测：复用 CHAP_LIST 的匹配模板 + chapterSkip 守卫，只做      */
+/* 识别不做格式化，供"查看目录"功能按行号跳转。                         */
+/* ------------------------------------------------------------------ */
+
+export interface ChapterEntry {
+  /** 行号（1-based，对应编辑器行） */
+  line: number;
+  /** 标题文本（去首尾空白） */
+  title: string;
+}
+
+type DetectKey = 't0' | 't1' | 't2' | 't3' | 't4' | 't5' | 't6';
+/** 各模板在原 handler 里的 skip 守卫（照抄 chapterRun 里的检查） */
+const DETECT_SKIPS: Record<DetectKey, string[]> = {
+  t0: [],
+  t1: ['t0', 't1'],
+  t2: ['t0', 't2'],
+  t3: ['t0'],
+  t4: [],
+  t5: [],
+  t6: ['t0', 't2', 't6'],
+};
+
+const DETECT_RES = (['t0', 't1', 't2', 't3', 't4', 't5', 't6'] as DetectKey[]).map(
+  (key) => {
+    const entry = CHAP_LIST[key];
+    const joinStr = entry.join ?? '';
+    // flags 沿用 chapterPrep 的 'gm'（含 t5 的 chapter → i 逻辑）；
+    // 单行 search 时 m/g 无影响
+    const flag = chapFlag(entry.tpl, 'gm', joinStr);
+    const re = getReg(flag.str.replace(/０-９|[０-９]/g, ''), flag.flag);
+    return { key, re };
+  },
+);
+
+/** 单行是否为章节标题（与 Chapter transform 的识别口径一致） */
+export function isChapterLine(line: string): boolean {
+  const s = line.trim();
+  if (!s) return false;
+  for (const { key, re } of DETECT_RES) {
+    // 模板自带 ^...$ 全行锚定；用 search 避免 lastIndex 污染
+    if (s.search(re) > -1) {
+      const skips = DETECT_SKIPS[key];
+      let skipped = false;
+      for (const k of skips) {
+        const target = k === 't6' ? cleanSpace(s) : s;
+        if (chapterSkip(target, k)) {
+          skipped = true;
+          break;
+        }
+      }
+      if (!skipped) return true;
+    }
+  }
+  return false;
+}
+
+/** 扫描全文，返回章节目录（行号 1-based） */
+export function detectChapters(text: string): ChapterEntry[] {
+  const out: ChapterEntry[] = [];
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (isChapterLine(lines[i])) {
+      out.push({ line: i + 1, title: lines[i].trim() });
+    }
+  }
+  return out;
+}

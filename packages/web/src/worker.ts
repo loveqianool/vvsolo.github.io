@@ -1,6 +1,7 @@
 import {
   checkQuotes,
   defaultConfig,
+  detectChapters,
   getTransform,
   runCleanup,
   runCleanupEx,
@@ -8,6 +9,7 @@ import {
   runTypesetSplit,
 } from '@typeset/core';
 import type {
+  ChapterEntry,
   PipelineId,
   QuoteIssue,
   RunContext,
@@ -20,8 +22,8 @@ export interface RunRequest {
   kind: 'run';
   /** 幂等标识，主线程用它匹配回包 */
   jobId: string;
-  /** 四条业务 pipeline，或 singleStep（规则面板的单步运行），或 checkQuotes（引号配对检查） */
-  pipeline: PipelineId | 'singleStep' | 'checkQuotes';
+  /** 四条业务 pipeline，或 singleStep（规则面板的单步运行），或 checkQuotes（引号配对检查），或 detectChapters（章节目录） */
+  pipeline: PipelineId | 'singleStep' | 'checkQuotes' | 'detectChapters';
   /** 输入文本：postMessage 传 10MB 字符串走结构化克隆即可，不做多余拷贝 */
   text: string;
   /** cleanup 的启用步骤 id；不传 = 按默认开关 */
@@ -69,6 +71,12 @@ ctx.onmessage = (e) => {
         progress('checkQuotes', 0, 1);
         const issues: QuoteIssue[] = checkQuotes(msg.text);
         result = JSON.stringify(issues);
+        break;
+      }
+      case 'detectChapters': {
+        progress('detectChapters', 0, 1);
+        const toc: ChapterEntry[] = detectChapters(msg.text);
+        result = JSON.stringify(toc);
         break;
       }
       case 'cleanupEx':

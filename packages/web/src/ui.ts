@@ -13,6 +13,7 @@ type BookInfo,
 import {
 PIPELINE_STEPS,
 getTransform,
+type ChapterEntry,
 type PipelineId,
 type QuoteIssue,
 } from '@typeset/core';
@@ -90,6 +91,7 @@ root.innerHTML = `
 <button class="btn" data-pipeline="typesetRead">阅读排版</button>
 </nav>
 <div class="top-actions">
+<button class="btn ghost" id="btn-toc">查看目录</button>
 <button class="btn ghost" id="btn-quote-check">引号检查</button>
 <button class="btn ghost" id="btn-search" title="快捷键 Ctrl+F">查找替换</button>
 </div>
@@ -153,6 +155,20 @@ root.innerHTML = `
 <div class="diff-col"><h3>结果</h3><div class="diff-lines" id="diff-right"></div></div>
 </div>
 </div>
+</div>
+<div class="toc-overlay" id="toc-overlay" hidden>
+<div class="toc-modal" role="dialog" aria-label="章节目录">
+<header>
+<h2 id="toc-title">章节目录</h2>
+<span class="spacer"></span>
+<button class="icon-btn" id="toc-close" title="关闭">✕</button>
+</header>
+<div class="toc-body"><ul id="toc-list"></ul></div>
+</div>
+</div>
+<div class="page-nav" aria-label="文档跳转">
+<button id="btn-goto-top" title="回到文档顶部">↑</button>
+<button id="btn-goto-bottom" title="跳到文档底部">↓</button>
 </div>`;
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) =>
@@ -274,6 +290,13 @@ setStatus('引号检查完成');
 } catch {
 setStatus('引号检查结果解析失败');
 }
+} else if (currentPipeline === 'detectChapters') {
+try {
+openToc(JSON.parse(msg.result) as ChapterEntry[]);
+setStatus('目录已生成');
+} catch {
+setStatus('目录结果解析失败');
+}
 } else {
 setStatus('完成，等待预览确认');
 openDiff({ original: lastInput, result: msg.result, label});
@@ -346,6 +369,67 @@ editor.gotoLine(Number(btn.dataset.goto));
 });
 $('#btn-quote-check').addEventListener('click', runQuoteCheck);
 $('#btn-search').addEventListener('click', () => editor.openSearch());
+
+/* ---------------- 章节目录 ---------------- */
+const tocOverlay = $('#toc-overlay');
+const tocList = $('#toc-list');
+const tocTitle = $('#toc-title');
+const openToc = (toc: ChapterEntry[]) => {
+tocTitle.textContent = `章节目录（${toc.length} 章）`;
+tocList.innerHTML =
+toc.length === 0
+? '<li class="toc-empty">未识别到章节标题</li>'
+: toc
+.map(
+(x) =>
+`<li><button class="link toc-item" data-goto="${x.line}">` +
+`${escapeHtml(x.title)}</button></li>`,
+)
+.join('');
+tocOverlay.hidden = false;
+};
+const closeToc = () => {
+tocOverlay.hidden = true;
+};
+$('#toc-close').addEventListener('click', closeToc);
+tocOverlay.addEventListener('click', (e) => {
+if (e.target === tocOverlay) closeToc();
+});
+tocList.addEventListener('click', (e) => {
+const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-goto]');
+if (!btn) return;
+closeToc();
+editor.gotoLine(Number(btn.dataset.goto));
+});
+function runToc() {
+if (currentJob) {
+setStatus('有任务正在运行，请稍候…');
+return;
+}
+const text = editor.getValue();
+if (!text) {
+setStatus('编辑器为空，先粘贴文本');
+editor.focus();
+return;
+}
+const req: RunRequest = { kind: 'run', jobId: newJobId(), pipeline: 'detectChapters', text};
+currentJob = req.jobId;
+currentLabel = '章节目录';
+currentPipeline = 'detectChapters';
+setRunning(true);
+progressBar.style.width = '0%';
+progressBar.classList.add('indeterminate');
+progressLabel.textContent = currentLabel;
+setStatus(`开始：${currentLabel}…`);
+worker.postMessage(req);
+}
+$('#btn-toc').addEventListener('click', runToc);
+
+/* ---------------- 右下角文档跳转 ---------------- */
+$('#btn-goto-top').addEventListener('click', () => editor.gotoLine(1));
+$('#btn-goto-bottom').addEventListener('click', () =>
+editor.gotoLine(Number.MAX_SAFE_INTEGER),
+);
 
 function runPipeline(pipeline: PipelineId | 'singleStep', stepId?: string) {
 if (currentJob) {
