@@ -89,6 +89,10 @@ root.innerHTML = `
 <button class="btn" data-pipeline="typesetSplit" title="快捷键 F9">分段排版</button>
 <button class="btn" data-pipeline="typesetRead">阅读排版</button>
 </nav>
+<div class="top-actions">
+<button class="btn ghost" id="btn-quote-check">引号检查</button>
+<button class="btn ghost" id="btn-search" title="快捷键 Ctrl+F">查找替换</button>
+</div>
 </header>
 <div class="docbar" aria-label="文档操作">
 <button class="chip" id="btn-new">新建</button>
@@ -115,7 +119,6 @@ root.innerHTML = `
 <p class="hint">「一键整理」启用的步骤，Init / End 恒启用；↑↓ 可调顺序</p>
 <ul class="rules" id="rules-list"></ul>
 <div class="rules-io">
-<button class="chip" id="btn-quote-check">引号配对检查</button>
 <button class="chip" id="btn-rules-export">导出 JSON</button>
 <button class="chip" id="btn-rules-import">导入 JSON</button>
 <input type="file" id="rules-file" accept="application/json,.json" hidden>
@@ -342,6 +345,7 @@ if (!btn) return;
 editor.gotoLine(Number(btn.dataset.goto));
 });
 $('#btn-quote-check').addEventListener('click', runQuoteCheck);
+$('#btn-search').addEventListener('click', () => editor.openSearch());
 
 function runPipeline(pipeline: PipelineId | 'singleStep', stepId?: string) {
 if (currentJob) {

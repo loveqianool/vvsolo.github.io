@@ -6,7 +6,11 @@ import {
   lineNumbers,
 } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
+import {
+  highlightSelectionMatches,
+  openSearchPanel,
+  searchKeymap,
+} from '@codemirror/search';
 
 export interface EditorOptions {
   initialValue?: string;
@@ -22,6 +26,8 @@ export interface EditorHandle {
   insertAtCursor(text: string): void;
   /** 跳到指定行（1-based），并把光标放到行首 */
   gotoLine(line: number): void;
+  /** 打开查找替换面板（同 Ctrl+F） */
+  openSearch(): void;
 }
 
 /* 中文衬线 + 英文等宽：按字形回退，中文走衬线，ASCII 走等宽 */
@@ -107,6 +113,9 @@ export function createEditor(
         scrollIntoView: true,
       });
       view.focus();
+    },
+    openSearch: () => {
+      openSearchPanel(view);
     },
   };
 }
