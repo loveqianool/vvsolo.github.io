@@ -1,0 +1,1 @@
+{"description":"小说排版引擎：纯函数 pipeline，零 DOM 依赖","devDependencies":{"@types/node":"^26.6.5","typescript":"^5.6.3","vitest":"^3.0.5"},"exports":{".":"./src/index.ts"},"name":"@typeset/core","scripts":{"test":"vitest run","typecheck":"tsc --noEmit"},"type":"module","version":"0.1.0","dependencies":{"entities":"^8.1.0"}}
