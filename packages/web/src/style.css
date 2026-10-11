@@ -252,6 +252,15 @@ button { font-family: inherit; }
 .rule-move { margin-left: auto; display: inline-flex; gap: 2px; }
 .rule-move .link { text-decoration: none; font-size: 14px; padding: 0 4px; }
 .quote-results { margin-top: 10px; font-size: 12px; }
+aside.sidebar > .quote-results {
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin-top: 0;
+  max-height: 40vh;
+  overflow-y: auto;
+}
 .quote-results ul { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .quote-results li { border-left: 2px solid var(--accent); padding-left: 8px; }
 .quote-head { color: var(--text-faint); margin: 0; }

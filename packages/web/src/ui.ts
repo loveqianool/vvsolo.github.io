@@ -107,6 +107,7 @@ root.innerHTML = `
 </header>
 <div class="main">
 <aside class="sidebar" id="sidebar">
+<div class="quote-results" id="quote-results" hidden></div>
 <section class="panel">
 <h2>书籍信息</h2>
 <div class="title-preview" id="title-preview"></div>
@@ -121,7 +122,6 @@ root.innerHTML = `
 <h2>整理规则 <button class="link" id="btn-rules-reset">重置</button></h2>
 <p class="hint">「一键整理」启用的步骤，Init / End 恒启用；点击规则名可单步运行；↑↓ 可调顺序</p>
 <ul class="rules" id="rules-list"></ul>
-<div class="quote-results" id="quote-results" hidden></div>
 </section>
 </aside>
 <main class="editor-pane"><div id="editor"></div></main>
@@ -417,6 +417,7 @@ worker.postMessage(req);
 const quoteResults = $('#quote-results');
 const showQuoteResults = (issues: QuoteIssue[]) => {
 quoteResults.hidden = false;
+$('#sidebar').scrollTop = 0;
 if (issues.length === 0) {
 quoteResults.innerHTML = '<p class="quote-ok">引号全部配对，没有发现可疑行。</p>';
 return;
@@ -444,6 +445,7 @@ $('#btn-quote-check').addEventListener('click', runQuoteCheck);
 const showLongParaResults = (issues: LongParaIssue[]) => {
 const el = $('#quote-results');
 el.hidden = false;
+$('#sidebar').scrollTop = 0;
 if (issues.length === 0) {
 el.innerHTML = '<p class="quote-ok">没有超过 300 字的段落。</p>';
 return;
